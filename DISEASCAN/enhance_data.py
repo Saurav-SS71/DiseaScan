@@ -310,7 +310,7 @@ def enhance_worker(args):
         img = apply_clahe(img)
         ops.append("clahe")
 
-    # ✅ RESIZE BEFORE SAVING
+    # RESIZE BEFORE SAVING
     img = resize_with_padding(img, IMAGE_SIZE)
     cv2.imwrite(dest_path, img, [cv2.IMWRITE_JPEG_QUALITY, 95])
     return ("enhanced" if ops else "passthrough"), cls, fname

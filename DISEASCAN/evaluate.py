@@ -118,7 +118,7 @@ def plot_confusion_matrix(y_true, y_pred, save_path: str):
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
-    print(f"\n✅  Confusion matrix saved → {save_path}")
+    print(f"\nConfusion matrix saved → {save_path}")
     plt.close()
 
 
@@ -145,7 +145,7 @@ def plot_per_class_metrics(y_true, y_pred, save_path: str):
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
-    print(f"✅  Per-class metrics chart saved → {save_path}")
+    print(f"Per-class metrics chart saved → {save_path}")
     plt.close()
 
 
@@ -188,7 +188,7 @@ def main():
     acc_tta = np.mean(y_true_tta == y_pred_tta_cls)
     print(f"\nStandard Accuracy : {acc_std:.4f}")
     print(f"TTA Accuracy      : {acc_tta:.4f}  (+{acc_tta - acc_std:.4f})")
-    print("\n✅  Evaluation complete.\n")
+    print("\nEvaluation complete.\n")
 
 
 if __name__ == "__main__":

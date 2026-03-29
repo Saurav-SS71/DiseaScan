@@ -20,12 +20,12 @@ def normalize_label(label):
 
     label = str(label).lower().strip()
 
-    # ✅ Exact match
+    # Exact match
     if label in EXACT_MAP:
         return EXACT_MAP[label]
 
     # =========================
-    # 🔥 PRIORITY RULES (ORDER MATTERS)
+    # PRIORITY RULES (ORDER MATTERS)
     # =========================
 
     # AKIEC (must come BEFORE keratosis rule)

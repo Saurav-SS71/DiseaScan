@@ -35,9 +35,9 @@ def enable_mixed_precision():
     if gpus:
         policy = tf.keras.mixed_precision.Policy("mixed_float16")
         tf.keras.mixed_precision.set_global_policy(policy)
-        print(f"✅  Mixed precision enabled: {policy.name}")
+        print(f"Mixed precision enabled: {policy.name}")
     else:
-        print("⚠️   No GPU found — running on CPU, mixed precision skipped.")
+        print("No GPU found — running on CPU, mixed precision skipped.")
 
 
 # ─────────────────────────────────────────────
@@ -111,7 +111,7 @@ def train_head(train_ds, val_ds, class_weights):
     # Save after phase 1
     save_path = os.path.join(MODEL_DIR, "diseascan_phase1.keras")
     model.save(save_path)
-    print(f"\n✅  Phase 1 model saved → {save_path}")
+    print(f"\nPhase 1 model saved → {save_path}")
 
     return model, history
 
@@ -158,7 +158,7 @@ def fine_tune(model, train_ds, val_ds, class_weights):
 
     save_path = os.path.join(MODEL_DIR, "diseascan_final.keras")
     model.save(save_path)
-    print(f"\n✅  Final model saved → {save_path}")
+    print(f"\nFinal model saved → {save_path}")
 
     return model, history
 
@@ -183,7 +183,7 @@ def main():
             "FocalLoss": FocalLoss,
         }
     )
-    print("✅ Loaded Phase 1 model")
+    print("Loaded Phase 1 model")
 
     # # Phase 1
     # model, history_head = train_head(train_ds, val_ds, class_weights)
@@ -191,7 +191,7 @@ def main():
     # Phase 2
     model, history_ft = fine_tune(model, train_ds, val_ds, class_weights)
 
-    print("\n✅  Training complete.")
+    print("\nTraining complete.")
 
 
 if __name__ == "__main__":
