@@ -10,7 +10,7 @@ if diseascan_path not in sys.path:
 # Import custom classes to register them with Keras before loading the model
 from custom_keras_objects import WarmupCosineDecay, FocalLoss
 
-MODEL_PATH = "app/models/diseascan_model.keras"
+MODEL_PATH = "app/models/diseascan_finetune_best.keras"
 
 # Load model with explicit custom_objects mapping (for compatibility)
 try:
