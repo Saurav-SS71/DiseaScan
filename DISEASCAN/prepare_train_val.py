@@ -23,7 +23,7 @@ def setup_directories():
     for class_name in CLASSES:
         os.makedirs(os.path.join(TRAIN_DIR, class_name), exist_ok=True)
         os.makedirs(os.path.join(VAL_DIR, class_name), exist_ok=True)
-    print(f"✅  Created {TRAIN_DIR}/ and {VAL_DIR}/ with class subdirectories.")
+    print(f"Created {TRAIN_DIR}/ and {VAL_DIR}/ with class subdirectories.")
 
 def split_class_images(class_name):
     """Split images of a single class into train/val."""
@@ -56,7 +56,7 @@ def main():
     print("=" * 60)
     
     if not os.path.isdir(SOURCE_DIR):
-        print(f"❌  Error: {SOURCE_DIR}/ not found!")
+        print(f"Error: {SOURCE_DIR}/ not found!")
         return
     
     setup_directories()
@@ -72,7 +72,7 @@ def main():
     print(f"  TOTAL TRAIN: {total_train:,}")
     print(f"  TOTAL VAL  : {total_val:,}")
     print("=" * 60)
-    print("✅  Dataset split complete!")
+    print("Dataset split complete!")
     print(f"   train/ → {TRAIN_DIR}/")
     print(f"   val/   → {VAL_DIR}/")
 
