@@ -7,7 +7,7 @@ import tensorflow as tf
 import numpy as np
 
 
-@tf.keras.utils.register_keras_serializable()
+@tf.keras.utils.register_keras_serializable(package="DISEASCAN")
 class WarmupCosineDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
     """Linear warm-up followed by cosine decay learning rate schedule."""
     
@@ -36,7 +36,7 @@ class WarmupCosineDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
         }
 
 
-@tf.keras.utils.register_keras_serializable()
+@tf.keras.utils.register_keras_serializable(package="DISEASCAN")
 class FocalLoss(tf.keras.losses.Loss):
     """Focal Loss for handling class imbalance and hard examples."""
     
