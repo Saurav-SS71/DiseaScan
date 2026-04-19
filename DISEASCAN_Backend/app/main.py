@@ -34,6 +34,7 @@ import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import os
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
@@ -121,12 +122,20 @@ def load_model():
         )
 
     log.info(f"Loading model from: {model_path}")
+    # Inference service does not need optimizer/loss/metrics state.
+    # Loading with compile=False avoids deserializing training config
+    # (common source of startup failures across Keras/TensorFlow versions).
     model = tf.keras.models.load_model(
         model_path,
         custom_objects={
             "WarmupCosineDecay": WarmupCosineDecay,
             "FocalLoss":         FocalLoss,
+            # Keras may store custom objects with fully-qualified registered names.
+            "DISEASCAN>WarmupCosineDecay": WarmupCosineDecay,
+            "DISEASCAN>FocalLoss": FocalLoss,
         },
+        compile=False,
+        safe_mode=False,
     )
 
     # Warm-up pass — forces TF to compile the graph before the first request
@@ -151,8 +160,6 @@ def build_model_fn(model):
       5. Forward pass with training=False  (disables dropout / BN update)
       6. Return softmax probabilities as a 1-D numpy array
     """
-    from tensorflow.keras.applications.efficientnet import preprocess_input
-
     TARGET = (380, 380)
 
     def fn(img: np.ndarray) -> np.ndarray:
@@ -160,7 +167,9 @@ def build_model_fn(model):
         pil_img = Image.fromarray(img.astype(np.uint8)).resize(TARGET, Image.BILINEAR)
 
         # 2 & 3 — float32 + EfficientNet normalisation  ([-1, 1] range)
-        x = preprocess_input(np.array(pil_img, dtype=np.float32))
+        # Inference-time equivalent of tf.keras.applications.efficientnet.preprocess_input.
+        x = np.array(pil_img, dtype=np.float32)
+        x = (x / 127.5) - 1.0
 
         # 4 — batch axis:  (380, 380, 3) → (1, 380, 380, 3)
         x = np.expand_dims(x, axis=0)
@@ -185,7 +194,10 @@ async def lifespan(app: FastAPI):
     except NotImplementedError as exc:
         log.warning(f"Model stub not implemented: {exc}  →  /predict returns 503.")
     except Exception as exc:
-        log.error(f"Model failed to load: {exc}  →  /predict returns 503.")
+        # Keep startup log concise even when the underlying exception message
+        # is extremely large (some Keras deserialization errors dump full model config).
+        log.error("Model failed to load (%s). /predict will return 503.", type(exc).__name__)
+        log.debug("Model load details: %s", exc)
     yield
     log.info("Shutdown complete.")
 
@@ -553,6 +565,25 @@ async def health():
         "allowed_types": sorted(ALLOWED_MIME),
         "classes":       CLASS_NAMES,
     }
+
+
+@app.get("/health-check", summary="Health check")
+async def health_check():
+    return await health()
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Serve a favicon if present under app/static/favicon.ico, else return 204."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "static", "favicon.ico")
+    if os.path.exists(path):
+        from fastapi.responses import FileResponse
+
+        return FileResponse(path)
+    from fastapi.responses import Response
+
+    return Response(status_code=204)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
