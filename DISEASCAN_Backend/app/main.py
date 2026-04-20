@@ -84,88 +84,83 @@ MODEL_FN = None
 
 def load_model():
     """
-    Loads diseascan_model.tflite using the lightweight tflite-runtime
-    package (~5 MB) instead of full TensorFlow (~400 MB).
-
-    Expected project layout:
-        DISEASCAN_Backend/
-        └── app/
-            ├── main.py               ← this file
-            └── models/
-                └── diseascan_model.tflite
+    Loads diseascan_model.keras directly using TensorFlow/Keras.
     """
-    try:
-        import tflite_runtime.interpreter as tflite
-    except ImportError:
-        # Fallback: full TensorFlow's built-in TFLite interpreter
-        import tensorflow as tf
-        tflite = tf.lite
+    import tensorflow as tf
 
     here       = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(here, "models", "diseascan_model.tflite")
+    model_path = os.path.join(here, "models", "diseascan_model.keras")
 
     if not os.path.isfile(model_path):
         raise FileNotFoundError(
-            f"TFLite model not found at '{model_path}'. "
-            "Run  python convert_to_tflite.py  locally first, then commit "
-            "app/models/diseascan_model.tflite."
+            f"Keras model not found at '{model_path}'."
         )
 
-    log.info(f"Loading TFLite model from: {model_path}")
-    interpreter = tflite.Interpreter(model_path=model_path)
-    interpreter.allocate_tensors()
+    # WarmupCosineDecay must be defined so Keras can deserialize it
+    @tf.keras.saving.register_keras_serializable(package="DISEASCAN")
+    class WarmupCosineDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
+        def __init__(self, initial_lr, warmup_steps, total_steps, **kwargs):
+            super().__init__(**kwargs)
+            self.initial_lr   = initial_lr
+            self.warmup_steps = warmup_steps
+            self.total_steps  = total_steps
 
-    # ── Warm-up pass ──────────────────────────────────────────────────────
-    input_details  = interpreter.get_input_details()
-    output_details = interpreter.get_output_details()
-    dummy = np.zeros(input_details[0]["shape"], dtype=np.float32)
-    interpreter.set_tensor(input_details[0]["index"], dummy)
-    interpreter.invoke()
-    log.info(
-        "TFLite model loaded. Input shape: %s, Output shape: %s. Warm-up done.",
-        input_details[0]["shape"].tolist(),
-        output_details[0]["shape"].tolist(),
+        def __call__(self, step):
+            step      = tf.cast(step, tf.float32)
+            warmup_lr = self.initial_lr * (step / self.warmup_steps)
+            cosine_lr = self.initial_lr * 0.5 * (
+                1 + tf.cos(
+                    tf.constant(3.14159265) *
+                    (step - self.warmup_steps) /
+                    (self.total_steps - self.warmup_steps)
+                )
+            )
+            return tf.where(step < self.warmup_steps, warmup_lr, cosine_lr)
+
+        def get_config(self):
+            return {
+                "initial_lr":   self.initial_lr,
+                "warmup_steps": self.warmup_steps,
+                "total_steps":  self.total_steps,
+            }
+
+    log.info(f"Loading Keras model from: {model_path}")
+    model = tf.keras.models.load_model(
+        model_path,
+        custom_objects={"WarmupCosineDecay": WarmupCosineDecay},
+        compile=False
     )
 
-    return interpreter
+    # Warm-up pass
+    import numpy as np
+    dummy = np.zeros((1, 380, 380, 3), dtype=np.float32)
+    model.predict(dummy, verbose=0)
+    log.info("Keras model loaded. Input shape: %s. Warm-up done.", model.input_shape)
+
+    return model
 
 
-def build_model_fn(interpreter):
+
+
+def build_model_fn(model):
     """
-    Returns a single-argument callable:
+    Returns a callable:
         fn(img: np.ndarray uint8 H×W×3) → np.ndarray float32 (7,)
-
-    Pipeline (must exactly mirror training):
-      1. Resize to 380×380  (model's expected input resolution)
-      2. Cast to float32
-      3. EfficientNet preprocess_input  (scales pixels to [-1, 1])
-      4. Add batch dimension
-      5. TFLite interpreter invoke
-      6. Return softmax probabilities as a 1-D numpy array
     """
+    import numpy as np
     TARGET = (380, 380)
-    input_details  = interpreter.get_input_details()
-    output_details = interpreter.get_output_details()
-    input_index    = input_details[0]["index"]
-    output_index   = output_details[0]["index"]
 
     def fn(img: np.ndarray) -> np.ndarray:
-        # 1 — resize  (PIL BILINEAR matches tf.image.resize default quality)
+        # 1 — resize
         pil_img = Image.fromarray(img.astype(np.uint8)).resize(TARGET, Image.BILINEAR)
-
-        # 2 & 3 — float32 + EfficientNet normalisation  ([-1, 1] range)
+        # 2 — float32 + EfficientNet normalisation [-1, 1]
         x = np.array(pil_img, dtype=np.float32)
         x = (x / 127.5) - 1.0
-
-        # 4 — batch axis:  (380, 380, 3) → (1, 380, 380, 3)
+        # 3 — add batch dim
         x = np.expand_dims(x, axis=0)
-
-        # 5 — TFLite inference
-        interpreter.set_tensor(input_index, x)
-        interpreter.invoke()
-
-        # 6 — get output, drop batch dim → shape (7,)
-        return interpreter.get_tensor(output_index)[0]
+        # 4 — inference
+        preds = model.predict(x, verbose=0)
+        return preds[0]   # shape (7,)
 
     return fn
 
