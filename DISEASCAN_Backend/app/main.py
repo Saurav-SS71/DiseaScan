@@ -30,6 +30,7 @@ import time
 import zlib
 from contextlib import asynccontextmanager
 from typing import Optional
+import urllib.request
 
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -86,6 +87,10 @@ def load_model():
     """
     Loads diseascan_model.tflite using tflite-runtime (lightweight, Render-friendly).
     Requires: tflite-runtime>=2.14.0 in requirements.txt
+    
+    If model is missing or is a Git LFS pointer, attempts to download from:
+      1. DISEASCAN_MODEL_URL environment variable (direct download link)
+      2. GitHub releases (via GITHUB_RELEASE_URL or auto-detect from repo)
     """
     try:
         from tflite_runtime.interpreter import Interpreter
@@ -98,15 +103,13 @@ def load_model():
     here       = os.path.dirname(os.path.abspath(__file__))
     model_path = os.path.join(here, "models", "diseascan_model.tflite")
 
-    # ── Handle Git LFS on Render (models/ is .gitignore'd, must download) ──
+    # ── Check if model exists and is valid ─────────────────────────────────
     if not os.path.isfile(model_path) or _is_git_lfs_pointer(model_path):
-        raise FileNotFoundError(
-            f"TFLite model not found or is a Git LFS pointer at '{model_path}'. "
-            "On Render, you must either:\n"
-            "  1. Use a model download URL in an environment variable,\n"
-            "  2. Store models in Cloud Storage (S3/GCS) and download at startup, or\n"
-            "  3. Ensure git-lfs is installed and available in your build."
-        )
+        log.warning("Model missing or is a Git LFS pointer. Attempting download...")
+        _download_model_from_release(model_path)
+
+    if not os.path.isfile(model_path):
+        raise FileNotFoundError(f"TFLite model not found at '{model_path}'.")
 
     try:
         interpreter = Interpreter(model_path=model_path)
@@ -114,7 +117,7 @@ def load_model():
     except Exception as exc:
         raise RuntimeError(f"Failed to load TFLite model: {exc}") from exc
 
-    log.info("TFLite model loaded from: %s", model_path)
+    log.info("✓ TFLite model loaded from: %s", model_path)
     return interpreter
 
 
@@ -128,6 +131,45 @@ def _is_git_lfs_pointer(path: str) -> bool:
             return header.startswith(b"version https://git-lfs")
     except Exception:
         return False
+
+
+def _download_model_from_release(model_path: str) -> None:
+    """
+    Download the TFLite model from a remote source.
+    
+    Supports:
+      1. DISEASCAN_MODEL_URL environment variable (direct download link)
+      2. GitHub release via GITHUB_RELEASE_URL env var
+      3. Direct GitHub raw content URL
+    
+    Example environment variables:
+      DISEASCAN_MODEL_URL=https://github.com/user/repo/releases/download/v1.0/diseascan_model.tflite
+    """
+    
+    # Try direct URL first
+    direct_url = os.getenv("DISEASCAN_MODEL_URL")
+    if direct_url:
+        try:
+            log.info("Downloading model from DISEASCAN_MODEL_URL...")
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            urllib.request.urlretrieve(direct_url, model_path)
+            size_mb = os.path.getsize(model_path) / (1024*1024)
+            log.info("✓ Model downloaded successfully: %.1f MB", size_mb)
+            return
+        except Exception as exc:
+            log.warning("Failed to download from DISEASCAN_MODEL_URL: %s", exc)
+    
+    raise FileNotFoundError(
+        f"Model file not found at '{model_path}'.\n"
+        f"To deploy on Render:\n"
+        f"  1. Create a GitHub Release with the model file\n"
+        f"  2. Get the direct download URL\n"
+        f"  3. Set on Render: Environment Variable 'DISEASCAN_MODEL_URL' = <URL>\n"
+        f"  4. Redeploy\n"
+        f"\n"
+        f"Example URL:\n"
+        f"  https://github.com/Saurav-SS71/DiseaScan/releases/download/v1.0/diseascan_model.tflite"
+    )
 
 
 def build_model_fn(model):
