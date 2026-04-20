@@ -98,10 +98,14 @@ def load_model():
     here       = os.path.dirname(os.path.abspath(__file__))
     model_path = os.path.join(here, "models", "diseascan_model.tflite")
 
-    if not os.path.isfile(model_path):
+    # ── Handle Git LFS on Render (models/ is .gitignore'd, must download) ──
+    if not os.path.isfile(model_path) or _is_git_lfs_pointer(model_path):
         raise FileNotFoundError(
-            f"TFLite model not found at '{model_path}'. "
-            "Ensure the models/ folder and .tflite file are committed to your repository."
+            f"TFLite model not found or is a Git LFS pointer at '{model_path}'. "
+            "On Render, you must either:\n"
+            "  1. Use a model download URL in an environment variable,\n"
+            "  2. Store models in Cloud Storage (S3/GCS) and download at startup, or\n"
+            "  3. Ensure git-lfs is installed and available in your build."
         )
 
     try:
@@ -112,6 +116,18 @@ def load_model():
 
     log.info("TFLite model loaded from: %s", model_path)
     return interpreter
+
+
+def _is_git_lfs_pointer(path: str) -> bool:
+    """Detect if a file is a Git LFS pointer (not the actual file)."""
+    if not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "rb") as f:
+            header = f.read(10)
+            return header.startswith(b"version https://git-lfs")
+    except Exception:
+        return False
 
 
 def build_model_fn(model):

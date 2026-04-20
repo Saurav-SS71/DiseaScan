@@ -14,7 +14,11 @@ services:
     region: oregon                          # closest free-tier region
 
     # ── Build ────────────────────────────────────────────────────────────
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      apt-get update -qq && apt-get install -y git-lfs > /dev/null 2>&1
+      git lfs install
+      git lfs pull
+      pip install -r requirements.txt
 
     # ── Start ────────────────────────────────────────────────────────────
     # Render injects $PORT automatically. Bind to 0.0.0.0 so it's reachable.
