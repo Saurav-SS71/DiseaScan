@@ -76,87 +76,61 @@ MEDICAL_DISCLAIMER = (
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# MODEL LIFECYCLE  —  replace load_model() and build_model_fn() only
+# MODEL LIFECYCLE  —  TFLite runtime (lightweight, fits Render free tier)
 # ═════════════════════════════════════════════════════════════════════════════
-MODEL    = None
+MODEL    = None          # TFLite Interpreter instance
 MODEL_FN = None
 
 
 def load_model():
     """
-    Loads diseascan_model.keras with custom objects WarmupCosineDecay and
-    FocalLoss, which must live in  DISEASCAN/custom_keras_objects.py
-    relative to this file's parent directory.
+    Loads diseascan_model.tflite using the lightweight tflite-runtime
+    package (~5 MB) instead of full TensorFlow (~400 MB).
 
     Expected project layout:
-        DISEASCAN/
-        ├── custom_keras_objects.py   ← WarmupCosineDecay, FocalLoss
+        DISEASCAN_Backend/
         └── app/
             ├── main.py               ← this file
             └── models/
-                └── diseascan_model.keras
+                └── diseascan_model.tflite
     """
-    import os
-    import sys
-    import tensorflow as tf
-
-    # ── Locate custom_keras_objects.py ───────────────────────────────────
-    # Walks up from this file to the DISEASCAN root so the import works
-    # regardless of the working directory uvicorn is launched from.
-    here      = os.path.dirname(os.path.abspath(__file__))
-    diseascan = os.path.abspath(os.path.join(here, "..", "..", "DISEASCAN"))
-    if not os.path.isdir(diseascan):
-        # Fallback: try the immediate parent (flat layout)
-        diseascan = os.path.abspath(os.path.join(here, ".."))
-
-    if diseascan not in sys.path:
-        sys.path.insert(0, diseascan)
-
     try:
-        from custom_keras_objects import FocalLoss, WarmupCosineDecay
-        log.info("Custom objects loaded: WarmupCosineDecay, FocalLoss")
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            f"Could not import custom_keras_objects from '{diseascan}'. "
-            "Check that DISEASCAN/custom_keras_objects.py exists and that "
-            "WarmupCosineDecay and FocalLoss are defined there."
-        ) from exc
+        import tflite_runtime.interpreter as tflite
+    except ImportError:
+        # Fallback: full TensorFlow's built-in TFLite interpreter
+        import tensorflow as tf
+        tflite = tf.lite
 
-    # ── Model path ────────────────────────────────────────────────────────
-    model_path = os.path.join(here, "models", "diseascan_model.keras")
+    here       = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(here, "models", "diseascan_model.tflite")
+
     if not os.path.isfile(model_path):
         raise FileNotFoundError(
-            f"Model file not found at '{model_path}'. "
-            "Copy diseascan_model.keras into app/models/ and restart."
+            f"TFLite model not found at '{model_path}'. "
+            "Run  python convert_to_tflite.py  locally first, then commit "
+            "app/models/diseascan_model.tflite."
         )
 
-    log.info(f"Loading model from: {model_path}")
-    # Inference service does not need optimizer/loss/metrics state.
-    # Loading with compile=False avoids deserializing training config
-    # (common source of startup failures across Keras/TensorFlow versions).
-    model = tf.keras.models.load_model(
-        model_path,
-        custom_objects={
-            "WarmupCosineDecay": WarmupCosineDecay,
-            "FocalLoss":         FocalLoss,
-            # Keras may store custom objects with fully-qualified registered names.
-            "DISEASCAN>WarmupCosineDecay": WarmupCosineDecay,
-            "DISEASCAN>FocalLoss": FocalLoss,
-        },
-        compile=False,
-        safe_mode=False,
+    log.info(f"Loading TFLite model from: {model_path}")
+    interpreter = tflite.Interpreter(model_path=model_path)
+    interpreter.allocate_tensors()
+
+    # ── Warm-up pass ──────────────────────────────────────────────────────
+    input_details  = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    dummy = np.zeros(input_details[0]["shape"], dtype=np.float32)
+    interpreter.set_tensor(input_details[0]["index"], dummy)
+    interpreter.invoke()
+    log.info(
+        "TFLite model loaded. Input shape: %s, Output shape: %s. Warm-up done.",
+        input_details[0]["shape"].tolist(),
+        output_details[0]["shape"].tolist(),
     )
 
-    # Warm-up pass — forces TF to compile the graph before the first request
-    # so the first real prediction isn't penalised by JIT compilation latency.
-    dummy = np.zeros((1, 380, 380, 3), dtype=np.float32)
-    model(dummy, training=False)
-    log.info("Warm-up pass complete. Model is ready.")
-
-    return model
+    return interpreter
 
 
-def build_model_fn(model):
+def build_model_fn(interpreter):
     """
     Returns a single-argument callable:
         fn(img: np.ndarray uint8 H×W×3) → np.ndarray float32 (7,)
@@ -166,28 +140,32 @@ def build_model_fn(model):
       2. Cast to float32
       3. EfficientNet preprocess_input  (scales pixels to [-1, 1])
       4. Add batch dimension
-      5. Forward pass with training=False  (disables dropout / BN update)
+      5. TFLite interpreter invoke
       6. Return softmax probabilities as a 1-D numpy array
     """
     TARGET = (380, 380)
+    input_details  = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    input_index    = input_details[0]["index"]
+    output_index   = output_details[0]["index"]
 
     def fn(img: np.ndarray) -> np.ndarray:
         # 1 — resize  (PIL BILINEAR matches tf.image.resize default quality)
         pil_img = Image.fromarray(img.astype(np.uint8)).resize(TARGET, Image.BILINEAR)
 
         # 2 & 3 — float32 + EfficientNet normalisation  ([-1, 1] range)
-        # Inference-time equivalent of tf.keras.applications.efficientnet.preprocess_input.
         x = np.array(pil_img, dtype=np.float32)
         x = (x / 127.5) - 1.0
 
         # 4 — batch axis:  (380, 380, 3) → (1, 380, 380, 3)
         x = np.expand_dims(x, axis=0)
 
-        # 5 — inference  (training=False → eval mode, no graph update)
-        preds = model(x, training=False)
+        # 5 — TFLite inference
+        interpreter.set_tensor(input_index, x)
+        interpreter.invoke()
 
-        # 6 — to numpy, drop batch dim → shape (7,)
-        return preds.numpy()[0]
+        # 6 — get output, drop batch dim → shape (7,)
+        return interpreter.get_tensor(output_index)[0]
 
     return fn
 
@@ -203,8 +181,6 @@ async def lifespan(app: FastAPI):
     except NotImplementedError as exc:
         log.warning(f"Model stub not implemented: {exc}  →  /predict returns 503.")
     except Exception as exc:
-        # Keep startup log concise even when the underlying exception message
-        # is extremely large (some Keras deserialization errors dump full model config).
         log.error("Model failed to load (%s). /predict will return 503.", type(exc).__name__)
         log.debug("Model load details: %s", exc)
     yield

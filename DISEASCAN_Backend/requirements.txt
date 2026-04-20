@@ -8,7 +8,8 @@ pydantic>=2.0.0
 Pillow>=10.0.0
 numpy>=1.24.0
 
-# ── ML / Deep Learning ───────────────────────────────────────────────────────
-# Use tensorflow-cpu on Render (no GPU available on free/starter tier).
-# This is ~3x smaller than the full tensorflow package.
-tensorflow-cpu>=2.15.0
+# ── ML / Inference ────────────────────────────────────────────────────────────
+# tflite-runtime is the lightweight TFLite interpreter (~5 MB vs ~400 MB for
+# full tensorflow-cpu). Run convert_to_tflite.py locally first to produce
+# the .tflite model file.
+tflite-runtime>=2.14.0
