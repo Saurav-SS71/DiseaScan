@@ -1,0 +1,32 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# ── Virtual Environments ─────────────────────────────────────────────────────
+.venv/
+.venv310/
+venv/
+env/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Environment Variables ─────────────────────────────────────────────────────
+.env
+.env.local
+
+# ── Model Files (tracked via Git LFS — see .gitattributes) ───────────────────
+# Uncomment the line below ONLY if you are NOT using Git LFS:
+# app/models/*.keras

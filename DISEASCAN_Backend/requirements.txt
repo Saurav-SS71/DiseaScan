@@ -1,0 +1,14 @@
+# ── Core API Framework ────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+pydantic>=2.0.0
+
+# ── Image Processing ─────────────────────────────────────────────────────────
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# ── ML / Deep Learning ───────────────────────────────────────────────────────
+# Use tensorflow-cpu on Render (no GPU available on free/starter tier).
+# This is ~3x smaller than the full tensorflow package.
+tensorflow-cpu>=2.15.0
