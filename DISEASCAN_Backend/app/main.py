@@ -82,42 +82,33 @@ MEDICAL_DISCLAIMER = (
 MODEL    = None          # TFLite Interpreter instance
 MODEL_FN = None
 
-
 def load_model():
-    """
-    Loads diseascan_model.tflite using tflite-runtime (lightweight, Render-friendly).
-    Requires: tflite-runtime>=2.14.0 in requirements.txt
-    
-    If model is missing or is a Git LFS pointer, attempts to download from:
-      1. DISEASCAN_MODEL_URL environment variable (direct download link)
-      2. GitHub releases (via GITHUB_RELEASE_URL or auto-detect from repo)
-    """
-    try:
-        from tflite_runtime.interpreter import Interpreter
-    except ImportError:
-        raise ImportError(
-            "tflite-runtime is not installed. "
-            "Add 'tflite-runtime>=2.14.0' to requirements.txt and redeploy."
-        )
+    import tensorflow as tf
 
     here       = os.path.dirname(os.path.abspath(__file__))
     model_path = os.path.join(here, "models", "diseascan_model.tflite")
 
-    # ── Check if model exists and is valid ─────────────────────────────
-    if not os.path.isfile(model_path) or _is_git_lfs_pointer(model_path):
-        log.warning("Model missing or is a Git LFS pointer. Attempting download...")
-        _download_model_from_release(model_path)
-
     if not os.path.isfile(model_path):
-        raise FileNotFoundError(f"TFLite model not found at '{model_path}'.")
+        raise FileNotFoundError(
+            f"TFLite model not found at '{model_path}'."
+        )
 
-    try:
-        interpreter = Interpreter(model_path=model_path)
-        interpreter.allocate_tensors()
-    except Exception as exc:
-        log.error("Model failed to load (%s): %s", type(exc).__name__, exc)
+    log.info(f"Loading TFLite model from: {model_path}")
+    interpreter = tf.lite.Interpreter(model_path=model_path)
+    interpreter.allocate_tensors()
 
-    log.info("✓ TFLite model loaded from: %s", model_path)
+    # Warm-up pass
+    input_details  = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    dummy = np.zeros(input_details[0]["shape"], dtype=np.float32)
+    interpreter.set_tensor(input_details[0]["index"], dummy)
+    interpreter.invoke()
+    log.info(
+        "TFLite model loaded. Input shape: %s, Output shape: %s. Warm-up done.",
+        input_details[0]["shape"].tolist(),
+        output_details[0]["shape"].tolist(),
+    )
+
     return interpreter
 
 def _is_git_lfs_pointer(path: str) -> bool:
