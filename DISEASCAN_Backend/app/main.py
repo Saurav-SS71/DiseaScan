@@ -25,6 +25,7 @@ import asyncio
 import io
 import logging
 import struct
+import sys
 import time
 import zlib
 from contextlib import asynccontextmanager
@@ -37,6 +38,14 @@ from fastapi.responses import JSONResponse
 import os
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
+
+# ── Ensure sibling modules are importable ─────────────────────────────────────
+# When uvicorn is launched from the project root (uvicorn app.main:app),
+# the `app/` directory is NOT on sys.path, so bare imports like
+# `from class_metadata import ...` would fail with ModuleNotFoundError.
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+if _APP_DIR not in sys.path:
+    sys.path.insert(0, _APP_DIR)
 
 from class_metadata import LESION_MAP, enrich_predictions
 from stable_inference import stable_predict
