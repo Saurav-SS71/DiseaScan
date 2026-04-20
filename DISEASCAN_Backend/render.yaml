@@ -22,8 +22,6 @@ services:
 
     # ── Environment ──────────────────────────────────────────────────────
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.10.13"
       - key: TF_CPP_MIN_LOG_LEVEL
         value: "2"                         # suppress TF info/warning logs
       - key: TF_ENABLE_ONEDNN_OPTS
