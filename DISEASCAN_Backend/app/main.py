@@ -200,7 +200,7 @@ async def lifespan(app: FastAPI):
         log.warning(f"Model stub not implemented: {exc}  →  /predict returns 503.")
     except Exception as exc:
         log.error("Model failed to load (%s). /predict will return 503.", type(exc).__name__)
-        log.debug("Model load details: %s", exc)
+        log.error("Model load details: %s", exc)
     yield
     log.info("Shutdown complete.")
 
