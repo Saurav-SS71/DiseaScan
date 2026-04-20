@@ -103,7 +103,7 @@ def load_model():
     here       = os.path.dirname(os.path.abspath(__file__))
     model_path = os.path.join(here, "models", "diseascan_model.tflite")
 
-    # ── Check if model exists and is valid ─────────────────────────────────
+    # ── Check if model exists and is valid ─────────────────────────────
     if not os.path.isfile(model_path) or _is_git_lfs_pointer(model_path):
         log.warning("Model missing or is a Git LFS pointer. Attempting download...")
         _download_model_from_release(model_path)
@@ -120,14 +120,12 @@ def load_model():
     log.info("✓ TFLite model loaded from: %s", model_path)
     return interpreter
 
-
 def _is_git_lfs_pointer(path: str) -> bool:
-    """Detect if a file is a Git LFS pointer (not the actual file)."""
     if not os.path.isfile(path):
         return False
     try:
         with open(path, "rb") as f:
-            header = f.read(10)
+            header = f.read(50)          # ← was 10, needs to be ≥ 23
             return header.startswith(b"version https://git-lfs")
     except Exception:
         return False
