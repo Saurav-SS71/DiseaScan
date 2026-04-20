@@ -52,7 +52,7 @@ from class_metadata import LESION_MAP, enrich_predictions
 from stable_inference import stable_predict
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
 
 
