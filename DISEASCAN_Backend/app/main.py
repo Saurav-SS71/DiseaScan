@@ -84,62 +84,34 @@ MODEL_FN = None
 
 def load_model():
     """
-    Loads diseascan_model.keras directly using TensorFlow/Keras.
+    Loads diseascan_model.tflite using tflite-runtime (lightweight, Render-friendly).
+    Requires: tflite-runtime>=2.14.0 in requirements.txt
     """
-    import tensorflow as tf
+    try:
+        from tflite_runtime.interpreter import Interpreter
+    except ImportError:
+        raise ImportError(
+            "tflite-runtime is not installed. "
+            "Add 'tflite-runtime>=2.14.0' to requirements.txt and redeploy."
+        )
 
     here       = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(here, "models", "diseascan_model.keras")
+    model_path = os.path.join(here, "models", "diseascan_model.tflite")
 
     if not os.path.isfile(model_path):
         raise FileNotFoundError(
-            f"Keras model not found at '{model_path}'."
+            f"TFLite model not found at '{model_path}'. "
+            "Ensure the models/ folder and .tflite file are committed to your repository."
         )
 
-    # WarmupCosineDecay must be defined so Keras can deserialize it
-    @tf.keras.saving.register_keras_serializable(package="DISEASCAN")
-    class WarmupCosineDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
-        def __init__(self, initial_lr, warmup_steps, total_steps, **kwargs):
-            super().__init__(**kwargs)
-            self.initial_lr   = initial_lr
-            self.warmup_steps = warmup_steps
-            self.total_steps  = total_steps
+    try:
+        interpreter = Interpreter(model_path=model_path)
+        interpreter.allocate_tensors()
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load TFLite model: {exc}") from exc
 
-        def __call__(self, step):
-            step      = tf.cast(step, tf.float32)
-            warmup_lr = self.initial_lr * (step / self.warmup_steps)
-            cosine_lr = self.initial_lr * 0.5 * (
-                1 + tf.cos(
-                    tf.constant(3.14159265) *
-                    (step - self.warmup_steps) /
-                    (self.total_steps - self.warmup_steps)
-                )
-            )
-            return tf.where(step < self.warmup_steps, warmup_lr, cosine_lr)
-
-        def get_config(self):
-            return {
-                "initial_lr":   self.initial_lr,
-                "warmup_steps": self.warmup_steps,
-                "total_steps":  self.total_steps,
-            }
-
-    log.info(f"Loading Keras model from: {model_path}")
-    model = tf.keras.models.load_model(
-        model_path,
-        custom_objects={"WarmupCosineDecay": WarmupCosineDecay},
-        compile=False
-    )
-
-    # Warm-up pass
-    import numpy as np
-    dummy = np.zeros((1, 380, 380, 3), dtype=np.float32)
-    model.predict(dummy, verbose=0)
-    log.info("Keras model loaded. Input shape: %s. Warm-up done.", model.input_shape)
-
-    return model
-
-
+    log.info("TFLite model loaded from: %s", model_path)
+    return interpreter
 
 
 def build_model_fn(model):
@@ -147,8 +119,10 @@ def build_model_fn(model):
     Returns a callable:
         fn(img: np.ndarray uint8 H×W×3) → np.ndarray float32 (7,)
     """
-    import numpy as np
     TARGET = (380, 380)
+
+    input_details  = model.get_input_details()
+    output_details = model.get_output_details()
 
     def fn(img: np.ndarray) -> np.ndarray:
         # 1 — resize
@@ -158,8 +132,10 @@ def build_model_fn(model):
         x = (x / 127.5) - 1.0
         # 3 — add batch dim
         x = np.expand_dims(x, axis=0)
-        # 4 — inference
-        preds = model.predict(x, verbose=0)
+        # 4 — TFLite inference
+        model.set_tensor(input_details[0]["index"], x)
+        model.invoke()
+        preds = model.get_tensor(output_details[0]["index"])
         return preds[0]   # shape (7,)
 
     return fn
@@ -448,11 +424,10 @@ async def predict(
     timer.mark("validation_ms")
 
     # ── Inference (non-blocking) ──────────────────────────────────────────
-    # TensorFlow is CPU/GPU-bound and not async-aware. Running it directly
-    # in the coroutine would block the entire event loop for every request,
-    # serialising all concurrent callers.  run_in_executor() delegates the
-    # work to a thread from the default ThreadPoolExecutor so FastAPI can
-    # continue serving other requests while inference runs.
+    # TFLite is CPU-bound and not async-aware. Running it directly in the
+    # coroutine would block the entire event loop for every request.
+    # run_in_executor() delegates the work to a thread from the default
+    # ThreadPoolExecutor so FastAPI can continue serving other requests.
     try:
         loop   = asyncio.get_running_loop()
         result = await loop.run_in_executor(
@@ -559,10 +534,8 @@ async def favicon():
     path = os.path.join(here, "static", "favicon.ico")
     if os.path.exists(path):
         from fastapi.responses import FileResponse
-
         return FileResponse(path)
     from fastapi.responses import Response
-
     return Response(status_code=204)
 
 
