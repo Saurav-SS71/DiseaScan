@@ -114,8 +114,8 @@ def load_model():
     try:
         interpreter = Interpreter(model_path=model_path)
         interpreter.allocate_tensors()
-    except Exception as exc:
-        raise RuntimeError(f"Failed to load TFLite model: {exc}") from exc
+    except RuntimeError as exc:
+        log.error("Model failed to load: %s", exc)
 
     log.info("✓ TFLite model loaded from: %s", model_path)
     return interpreter
